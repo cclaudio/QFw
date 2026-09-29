@@ -63,6 +63,14 @@ document:
 - Attachments are detected transparently rather than passed as an explicit
   argument, so no service code changes to benefit.
 - Memory-registration caching is not implemented.
+- Knowing a peer's OFI address is not enough to send it RPCs over the
+  fabric. A process waits for the peer's first heartbeat, which proves the
+  peer can name it. Before openQSE/DEFw#24 it did not wait, and the first
+  RPC to a peer that had connected to it was dropped as coming from an
+  unknown agent. See Bootstrap And Address Exchange.
+- Builds after DEFw's move to CMake were TCP-only in the QFw-SLURM-Cluster
+  image until openQSE/QFw-SLURM-Cluster#26, because nothing put libfabric
+  on the pkg-config search path. See Build Integration.
 
 ## Current Transport
 
@@ -101,9 +109,11 @@ Several pieces of libfabric groundwork already exist in the tree:
 - The QFw-SLURM-Cluster container image builds libfabric v2.3.1 into
   `/opt/qfw/libfabric`, and `libfabric-install` is a key in the sample
   install configurations.
-- `environment/qfw_libfabric_env.sh` exports the libfabric install paths
+- `environment/qfw_libfabric_env.sh` exported the libfabric install paths
   and Slingshot-oriented tuning (`FI_LNX_PROV_LINKS="shm+cxi:cxi0|..."`,
-  `FI_CXI_RDZV_*`, `FI_MR_CACHE_*`, XPMEM).
+  `FI_CXI_RDZV_*`, `FI_MR_CACHE_*`, XPMEM). It went away with QFw's legacy
+  runtime scripts in `567a295`, so phase 2 has to give that tuning a new
+  home.
 - DEFw transport and SWIG contract tests live under `DEFw/tests/`; they do not
   require site-specific experiment scripts or private source-tree paths.
 
@@ -219,9 +229,11 @@ Supporting changes:
 
 - `defw_agent_blk_t` carries the peer's `fi_addr_t` (as a `uint64_t`, so
   the header needs no libfabric include) alongside the existing TCP fds,
-  guarded by a `DEFW_AGENT_OFI_ADDR_VALID` state bit. A union was
-  considered and rejected: both are live at once, because the control
-  channel stays on TCP while RPC traffic uses the fabric.
+  guarded by a `DEFW_AGENT_OFI_ADDR_VALID` state bit. A second bit,
+  `DEFW_AGENT_OFI_READY`, is set once the peer's first heartbeat arrives,
+  and it is what RPC sends and RMA offers check. A union was considered
+  and rejected: both are live at once, because the control channel stays
+  on TCP while RPC traffic uses the fabric.
 - The `progress()` op is declared but unused. The intent was to reduce the
   listener thread to `while (!shutdown) transport->progress();` but the
   TCP listener keeps its `select()` loop and OFI drains its receive CQ on
@@ -302,18 +314,41 @@ both OFI-capable:
 1. A opens the TCP CTRL connection to B exactly as today and sends
    `defw_msg_session_t`, extended with a new field: the serialized OFI
    endpoint address (`fi_getname()` output, bounded-size byte array) or
-   an empty address if A has no OFI endpoint.
+   an empty address if A has no OFI endpoint. A then opens the TCP RPC
+   connection and sends its session info again on it.
 2. B inserts A's address into its AV, stores the `fi_addr_t` in A's agent
-   block, and returns its own session info (existing behavior) including
-   its OFI address.
-3. A inserts B's address into its AV. Both sides now mark the peer
-   `DEFW_AGENT_OFI_ADDR_VALID`.
-4. RPC traffic (`EN_MSG_TYPE_PY_REQUEST` / `PY_RESPONSE` / `PY_EVENT`)
-   for that peer is sent with `fi_send()` from then on. Heartbeats and
-   session messages stay on the TCP CTRL socket.
-5. If either side advertised an empty OFI address, the pair keeps using
+   block and marks A `DEFW_AGENT_OFI_ADDR_VALID`. Once both of A's
+   connections are in, B sends A a heartbeat, which carries B's uuid and
+   B's OFI address. B does not send session info of its own.
+3. A learns B's uuid and address from that heartbeat, inserts the address
+   into its AV, and marks B `DEFW_AGENT_OFI_ADDR_VALID` and
+   `DEFW_AGENT_OFI_READY`. A answers straight away with a heartbeat of its
+   own.
+4. When A's heartbeat reaches B, B marks A `DEFW_AGENT_OFI_READY`.
+5. RPC traffic (`EN_MSG_TYPE_PY_REQUEST` / `PY_RESPONSE` / `PY_EVENT`)
+   for a peer is sent with `fi_send()` once the peer is
+   `DEFW_AGENT_OFI_READY`, and over the TCP RPC channel until then.
+   Heartbeats and session messages stay on the TCP CTRL socket.
+6. If either side advertised an empty OFI address, the pair keeps using
    the TCP RPC channel (today's second socket). This is the fallback and
    also the behavior of a TCP-only build.
+
+Why step 5 waits for a heartbeat rather than for the address:
+
+- A fabric message names its sender only by uuid, so the receiver has to
+  know that uuid already. B knows A's from step 1, but A learns B's only in
+  step 3. A heartbeat only ever goes to a peer the sender already knows,
+  and by then the sender also has the receiver's address, so receiving one
+  proves the peer can name us.
+- A reads B's heartbeat on its listener thread and fabric messages on its
+  OFI progress thread, so nothing orders the two. The listener starts
+  watching the sockets of a connection it made only on the next pass of
+  its `select()` loop, up to `HB_TO` (2 s) later. Until openQSE/DEFw#24, B
+  used the fabric as soon as step 2 finished, and A dropped B's first RPC
+  as "OFI msg from an unknown agent" on nearly every connection. The
+  first RPC from B now goes over TCP instead.
+- The same rule gates RMA: a payload is offered by RMA only to a peer that
+  is `DEFW_AGENT_OFI_READY`, since the peer reads it from us.
 
 Notes:
 
@@ -408,8 +443,8 @@ but correct, and it is the reason the per-peer TCP RPC socket still exists.
 A memory-registration cache. `fi_mr_reg` is inexpensive on the `tcp`
 provider, so caching would pay off only on a NIC provider, where it should
 be decided with phase 2 measurements in hand rather than guessed at now.
-`FI_MR_CACHE_*` tuning already exists in
-`environment/qfw_libfabric_env.sh` for whatever libfabric itself caches.
+`FI_MR_CACHE_*` tuning for whatever libfabric itself caches was in
+`environment/qfw_libfabric_env.sh`, which has since been removed.
 
 Zero-copy publishing. A payload is currently copied twice, once into
 `bytes` and once into the registered region. Registering the Python
@@ -450,22 +485,33 @@ RMA is enabled by default and requires no additional launcher configuration.
 QFw service launchers preserve `DEFW_TRANSPORT` and `DEFW_OFI_PROVIDER` in the
 environment passed to DEFw agents.
 
-Slingshot tuning stays where it is today, in
-`environment/qfw_libfabric_env.sh` (`FI_LNX_PROV_LINKS`, `FI_CXI_RDZV_*`,
-and related variables).
+Slingshot tuning (`FI_LNX_PROV_LINKS`, `FI_CXI_RDZV_*` and related
+variables) lived in `environment/qfw_libfabric_env.sh`, which QFw removed
+with its legacy runtime scripts. Phase 2 has to give it a new home.
 
 ## Build Integration
 
-- SCons: `defw_transport_ofi.c` compiles only when libfabric is found
-  (via `LIBFABRIC_DIR` / `PKG_CONFIG_PATH`, both already exported by
-  `qfw_libfabric_env.sh`). Without libfabric, DEFw builds TCP-only, so
-  the new transport adds no hard dependency. Minimum supported libfabric
-  is 1.20; the container ships 2.3.1.
+- CMake: `DEFW_ENABLE_LIBFABRIC` (default `ON`) looks for libfabric
+  through pkg-config, then through `find_path`/`find_library` hinted by
+  `LIBFABRIC_DIR` or `LIBFABRIC_INSTALL_DIR`. Without libfabric, DEFw
+  builds TCP-only, so the new transport adds no hard dependency. Minimum
+  supported libfabric is 1.20; the container ships 2.3.1.
+- A build that finds no libfabric says so in a single configure line,
+  `DEFw libfabric not found; building TCP-only transport`, which is easy
+  to miss among QFw's own, and at run time `DEFW_TRANSPORT=ofi` logs the
+  fallback and carries on over tcp. That is how the QFw-SLURM-Cluster
+  builds went TCP-only once DEFw moved to CMake. The old
+  `qfw_build.sh --defw` path sourced `qfw_libfabric_env.sh` first, and both
+  have since been removed. The image build and `do_qfw_build.sh`
+  now put `/opt/qfw/libfabric/lib/pkgconfig` on `PKG_CONFIG_PATH` and fail
+  when the installed `libdefw.so` does not link libfabric
+  (openQSE/QFw-SLURM-Cluster#26). A build elsewhere needs the same, and
+  `ldd` on `libdefw.so` is the quick check.
 - A TCP-only build and an OFI-enabled build are wire-compatible with
   each other (the OFI-enabled build simply advertises an OFI address
   when it has one, and a TCP-only peer advertises none).
-- The stale `swigify` externals entry in `defw_build.yaml` (absolute paths
-  into a private libfabric tree) is still there and still wants removing.
+- The stale `swigify` externals entry in `defw_build.yaml` went away with
+  the SCons build.
 - SWIG changes were needed after all, for the RMA attachment path only.
   Phases 0 to 2 leave the Python/C interface alone, but moving a binary
   payload across it needs typemaps: the generic `char*` mapping produces a
@@ -528,6 +574,12 @@ was in hand before Slingshot bring-up rather than after it.
 - Container integration: QFw-SLURM-Cluster already builds libfabric with
   the commodity providers, so the OFI transport is exercised end-to-end in
   CI-like conditions over `tcp` and `sm2` before touching real hardware.
+- DEFw's runner smoke test is the quickest end-to-end check of the OFI
+  path. In a DEFw build that links libfabric, run
+  `DEFW_TRANSPORT=ofi DEFW_OFI_PROVIDER=tcp ctest -R defw_test_runner_smoke`,
+  and again with `sm2`. With the first RPC being dropped it failed after
+  about five minutes with `Response timed out`. It now passes in about five
+  seconds.
 - Attachment routing: the choice between inline and RMA is decided in pure
   Python, so it is covered by a standalone test against a stubbed C layer
   that needs neither libfabric nor a peer. The transfer itself is covered
