@@ -75,4 +75,16 @@ def resolve_descriptor(device_id=None):
 		# both. See _ensure_ibm_env in drivers/qrmi_driver.py.
 		"service_crn": device.get("service-crn"),
 		"iam_endpoint": device.get("iam-endpoint"),
+		# The object storage IBMQuantumSystem stages results through, and the
+		# job timeout it requires. These describe the device rather than the
+		# user, so they come from its device-access entry the way iam-endpoint
+		# does, and config is the only source that reaches a site service. The
+		# secret half of object storage -- the AWS key pair -- stays in the
+		# credential DB and never passes through here. See
+		# _ensure_object_storage_env in drivers/qrmi_driver.py.
+		"s3_endpoint": device.get("s3-endpoint"),
+		"s3_endpoint_for_qsapi": device.get("s3-endpoint-for-qsapi"),
+		"s3_bucket": device.get("s3-bucket"),
+		"s3_region": device.get("s3-region"),
+		"job_timeout_seconds": device.get("job-timeout-seconds"),
 	}
