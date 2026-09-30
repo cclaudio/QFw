@@ -322,6 +322,19 @@ else
 fi
 _qfw_prepend_path LD_LIBRARY_PATH "${DEFW_PREFIX}/lib"
 _qfw_prepend_path LD_LIBRARY_PATH "${DEFW_PREFIX}/src"
+# libdefw.so links libfabric and installs with an RPATH of $ORIGIN alone, so
+# nothing else puts libfabric's directory on the search path. Activating has to
+# supply it, because a caller reached over ssh starts with no LD_LIBRARY_PATH
+# at all. Baked in at configure time; empty when the build found no libfabric,
+# or found one the loader already searches for. See CMakeLists.txt.
+_qfw_libfabric_lib_dirs=(@QFW_LIBFABRIC_LIB_DIRS_SHELL@)
+if (( ${#_qfw_libfabric_lib_dirs[@]} > 0 )); then
+	for _qfw_libfabric_dir in "${_qfw_libfabric_lib_dirs[@]}"; do
+		_qfw_prepend_path LD_LIBRARY_PATH "${_qfw_libfabric_dir}"
+	done
+	unset _qfw_libfabric_dir
+fi
+unset _qfw_libfabric_lib_dirs
 if [[ "${_qfw_script_prefix}" == "${_qfw_cmake_generated_prefix}" ]]; then
 	_qfw_defw_runtime="$(_qfw_resolve_script_dir \
 		"${_qfw_script_prefix}/../DEFw/runtime/src/cdefw_global.py")"

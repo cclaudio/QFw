@@ -104,6 +104,42 @@ add_custom_target(qfw_external_runtime ALL
 		qfw_external_qhw_admission
 		qfw_external_qhw_scheduler)
 
+# Where the build found libfabric, for qfw-activate to put on
+# LD_LIBRARY_PATH.
+#
+# DEFw links libfabric when pkg-config finds it, and its libraries install with
+# an RPATH of $ORIGIN alone, so libfabric stays resolvable only through the
+# environment. That is enough in a shell that already has it, and not enough
+# anywhere else: sshd builds a fresh environment, so a remote command gets
+# PATH, HOME and little else. QFw-SLURM-Cluster's qfw-site-services drives
+# every site service over ssh and sources this script as the whole of its
+# setup, and its services died at load with "libfabric.so.1: cannot open
+# shared object file" the moment DEFw started linking libfabric.
+#
+# Activating an install should be enough to run it, so record the directory
+# here rather than leaving each caller to know it.
+#
+# Empty unless pkg-config reports a directory to add. libfabric in a system
+# library directory needs none, and pkg-config emits no -L for it; adding one
+# anyway would put the system directories on LD_LIBRARY_PATH and so override
+# normal resolution for every other library too.
+set(QFW_LIBFABRIC_LIB_DIRS_SHELL "")
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+	pkg_check_modules(QFW_LIBFABRIC QUIET libfabric)
+endif()
+foreach(qfw_libfabric_dir IN LISTS QFW_LIBFABRIC_LIBRARY_DIRS)
+	if(qfw_libfabric_dir MATCHES "^/(usr/)?lib(32|64|x32)?/?$")
+		continue()
+	endif()
+	string(APPEND QFW_LIBFABRIC_LIB_DIRS_SHELL " \"${qfw_libfabric_dir}\"")
+endforeach()
+string(STRIP "${QFW_LIBFABRIC_LIB_DIRS_SHELL}" QFW_LIBFABRIC_LIB_DIRS_SHELL)
+if(QFW_LIBFABRIC_LIB_DIRS_SHELL)
+	message(STATUS
+		"QFw activate will add libfabric: ${QFW_LIBFABRIC_LIB_DIRS_SHELL}")
+endif()
+
 configure_file(
 	cmake/qfw-activate.in
 	"${QFW_GENERATED_BIN_DIR}/qfw-activate"
