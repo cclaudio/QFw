@@ -57,6 +57,22 @@ IBM_DEVICE = {
 	"iam-endpoint": "https://iam.test.cloud.ibm.com",
 }
 
+# IBMQuantumSystem additionally stages results through object storage and
+# requires a job timeout. The store and the timeout describe the device, so
+# they live beside it in device-access config; only the AWS key pair is secret
+# and stays in the credential DB. The driver reads all of these off the
+# descriptor, so select_qpu forwarding them is only half the path --
+# resolve_descriptor has to carry them too (openQSE/QFw#76 wired the first half
+# only).
+IBM_QS_DEVICE = dict(IBM_DEVICE, **{
+	"resource-type": "IBMQuantumSystem",
+	"s3-endpoint": "https://s3.us-east.cloud-object-storage.appdomain.cloud",
+	"s3-endpoint-for-qsapi": "https://s3.internal",
+	"s3-bucket": "results-bucket",
+	"s3-region": "us-east",
+	"job-timeout-seconds": "30",
+})
+
 DESCRIPTOR_KEYS = (
 	"libraries", "preference", "caps", "execution_owner",
 	"service-crn", "iam-endpoint")
@@ -252,3 +268,55 @@ def test_resolve_descriptor_carries_the_ibm_instance_fields(monkeypatch):
 	assert resolved["resource_type"] == "IBMQiskitRuntimeService"
 	assert resolved["service_crn"] == IBM_CRN
 	assert resolved["iam_endpoint"] == "https://iam.test.cloud.ibm.com"
+
+
+def test_select_qpu_passes_through_the_object_storage_fields(monkeypatch):
+	monkeypatch.delenv(device_access.QPU_DEVICE_ENV, raising=False)
+	selected = device_access.select_qpu(
+		_config(IBM_QS_DEVICE), "cfg.yaml", provider="ibm")
+	assert selected["s3-endpoint"] == IBM_QS_DEVICE["s3-endpoint"]
+	assert selected["s3-endpoint-for-qsapi"] == "https://s3.internal"
+	assert selected["s3-bucket"] == "results-bucket"
+	assert selected["s3-region"] == "us-east"
+	assert selected["job-timeout-seconds"] == "30"
+
+
+def test_resolve_descriptor_carries_the_object_storage_fields(monkeypatch):
+	# The regression: select_qpu forwarded the store, resolve_descriptor's own
+	# fixed key set dropped it, and _ensure_object_storage_env then reported
+	# S3_ENDPOINT, S3_BUCKET and S3_REGION missing for a device that configured
+	# all three. A site service has no other way to receive them, so config
+	# reaching the driver is the whole path.
+	descriptor = _load_descriptor()
+	monkeypatch.setattr(
+		device_access, "device_access_config_path", lambda: "cfg.yaml")
+	monkeypatch.setattr(
+		device_access, "load_yaml_config",
+		lambda path: _config(IBM_QS_DEVICE))
+	monkeypatch.setenv(device_access.QPU_DEVICE_ENV, "dev")
+
+	resolved = descriptor.resolve_descriptor()
+	assert resolved["resource_type"] == "IBMQuantumSystem"
+	assert resolved["s3_endpoint"] == IBM_QS_DEVICE["s3-endpoint"]
+	assert resolved["s3_endpoint_for_qsapi"] == "https://s3.internal"
+	assert resolved["s3_bucket"] == "results-bucket"
+	assert resolved["s3_region"] == "us-east"
+	assert resolved["job_timeout_seconds"] == "30"
+
+
+def test_resolve_descriptor_leaves_object_storage_unset_when_unconfigured(
+		monkeypatch):
+	# A device that stages nothing must not gain empty strings: the driver
+	# treats a falsy descriptor value as "not configured" and falls back to
+	# QFW_IBM_* or, for the timeout, to its own default.
+	descriptor = _load_descriptor()
+	monkeypatch.setattr(
+		device_access, "device_access_config_path", lambda: "cfg.yaml")
+	monkeypatch.setattr(
+		device_access, "load_yaml_config", lambda path: _config(BARE_DEVICE))
+	monkeypatch.setenv(device_access.QPU_DEVICE_ENV, "dev")
+
+	resolved = descriptor.resolve_descriptor()
+	for key in ("s3_endpoint", "s3_endpoint_for_qsapi", "s3_bucket",
+			"s3_region", "job_timeout_seconds"):
+		assert resolved[key] is None
