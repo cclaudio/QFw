@@ -287,7 +287,8 @@ class QrmiDriver(BaseDriver):
 				from util.device_access import resolve_device_access
 				cfg = resolve_device_access(
 					provider=provider,
-					device_id=credential.get("device_id"),
+					device_id=(credential.get("device_id")
+						or self._descriptor.get("id")),
 					user=credential.get("user"),
 					credential_hint=credential.get("credential_hint"),
 					credential_handle=credential.get("credential_handle"))
