@@ -17,7 +17,7 @@ QPM_PROVIDER_SELECTIONS = {
 	"backline": {
 		"provider": "backline",
 		"qpm_type": QPMType.QPM_TYPE_SIMULATOR,
-		"qpm_capabilities": QPMCapability.QPM_CAP_STATEVECTOR,
+		"qpm_capabilities": QPMCapability.QPM_CAP_QEC,
 	},
 	"shim": {
 		"provider": "shim",

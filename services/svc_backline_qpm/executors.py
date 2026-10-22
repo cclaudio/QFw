@@ -45,6 +45,9 @@ def start(catalyst_lib, plugins, binary=None, log_dir=None, timeout_s=30.0):
 	log_dir = Path(log_dir or os.environ.get("QFW_LOG_DIR") or
 		       tempfile.gettempdir())
 	log_path = str(log_dir / f"backline-executor-{port}.log")
+	# TODO(security): the executor listens on every interface and runs any
+	# program a client sends, unauthenticated, as the QPM's user. Bind it to
+	# the client-facing interface and check a per-reservation secret.
 	argv = [binary or str(lib / "catalyst-executor"),
 		f"--bind=0.0.0.0:{port}"]
 	argv += [f"--plugin={lib / p}" for p in plugins]

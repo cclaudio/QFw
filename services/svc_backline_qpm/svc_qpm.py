@@ -21,6 +21,7 @@ DEFAULT_INVENTORY = Path(__file__).with_name("inventory.yaml")
 # device property; qhw-admission requires it > 0 and rejects larger requests.
 MAX_QUBITS = 3
 
+
 def backline_profile(device_id, max_qubits):
 	# Admission timing model: placeholder costs from the fake IQM
 	# profile; replace with measured compile and QEC-round times.
@@ -101,7 +102,7 @@ class QPM(UTIL_QPM):
 		})
 		info = self.query_helper(
 			QPMType.QPM_TYPE_SIMULATOR,
-			QPMCapability.QPM_CAP_STATEVECTOR,
+			QPMCapability.QPM_CAP_QEC,
 			SERVICE_NAME, SERVICE_DESC,
 			properties=properties)
 		logging.debug(f"Backline {SERVICE_DESC}: {info}")
@@ -206,7 +207,9 @@ class QPM(UTIL_QPM):
 					 (meta.get("owner") or {}).get("user"), "owner"),
 					(request.get("job_id"), meta.get("external_job_id"),
 					 "job")):
-				if want and have and str(want) != str(have):
+				# A request that omits a field the reservation records
+				# does not match it.
+				if have and str(want or "") != str(have):
 					return rejected(
 						"invalid-request",
 						f"reservation {rid} belongs to another {what}")
