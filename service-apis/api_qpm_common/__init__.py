@@ -22,6 +22,7 @@ class QPMCapability(IntFlag):
 	QPM_CAP_STATEVECTOR = 1 << 1
 	QPM_CAP_SUPERCONDUCTING = 1 << 2
 	QPM_CAP_NEUTRAL_ATOM = 1 << 3
+	QPM_CAP_QEC = 1 << 4
 
 
 class QPMRemoteBase(BaseRemote):
