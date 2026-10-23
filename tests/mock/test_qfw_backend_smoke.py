@@ -218,6 +218,32 @@ def test_backend_registers_completion_event_once(monkeypatch):
 	]
 
 
+def test_backend_unregisters_completion_events_at_interpreter_exit(
+		monkeypatch):
+	import qfw_qiskit.qfw_simulator as qfw_simulator
+
+	fake_qpm = FakeQPM()
+	fake_event_api = FakeEventAPI(class_id="event-api-atexit")
+	fake_runtime = FakeRuntime(endpoint="endpoint-atexit")
+	atexit_callbacks = []
+
+	monkeypatch.setattr(
+		qfw_simulator, "get_qpm",
+		lambda *args, **kwargs: (fake_qpm, None))
+	monkeypatch.setattr(qfw_simulator, "BaseEventAPI", lambda: fake_event_api)
+	monkeypatch.setattr(qfw_simulator, "me", fake_runtime)
+	monkeypatch.setattr(
+		qfw_simulator.atexit, "register", atexit_callbacks.append)
+
+	backend = qfw_simulator.QFwBackend()
+
+	assert atexit_callbacks == [backend._unregister_completion_events]
+
+	atexit_callbacks[0]()
+
+	assert fake_qpm.unregistrations == [1]
+
+
 def test_backend_shutdown_unregisters_completion_events(monkeypatch):
 	import qfw_qiskit.qfw_simulator as qfw_simulator
 

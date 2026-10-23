@@ -1,3 +1,4 @@
+import atexit
 import os
 import time
 import logging
@@ -135,6 +136,7 @@ class QFwBackend(BackendV2):
 		self.options.set_validator("seed_simulator", int)
 		self.options.set_validator("seed", int)
 		self.register_completion_events()
+		atexit.register(self._unregister_completion_events)
 
 	def __copy__(self):
 		return self
