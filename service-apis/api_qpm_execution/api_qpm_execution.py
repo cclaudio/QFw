@@ -23,7 +23,7 @@ class QPMExecution(QPMRemoteBase):
 					token=None, reservation_id=None, filters=None):
 		pass
 
-	def unregister_event_notification(self, registration_id, token=None):
+	def unregister_event_notification(self, registration_id):
 		pass
 
 	def cancel_task(self, cid=None, reservation_id=None, token=None,

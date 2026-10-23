@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+import uuid
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -262,7 +263,6 @@ class QPMTargetController:
 		self.oor_drain_requested = False
 		self.worker_state = {}
 		self.event_endpoints = {}
-		self.event_registration_id_next = 1
 		self.callback_endpoints = {}
 		self.provider_canceller = None
 		self.provider_credential_evictor = None
@@ -943,10 +943,9 @@ class QPMTargetController:
 		registration["filters"] = dict(info.get("filters") or {})
 		registration["reservation_id"] = reservation_id
 		class_id = registration.get("class_id")
+		registration_id = str(uuid.uuid4())
+		registration["registration_id"] = registration_id
 		with self.lock:
-			registration_id = self.event_registration_id_next
-			self.event_registration_id_next += 1
-			registration["registration_id"] = registration_id
 			self.event_endpoints.setdefault(class_id, []).append(
 				registration)
 			return {
@@ -2148,14 +2147,16 @@ class QPMTargetController:
 							context=delivery.get("trace_context")):
 						registration["class"].put(delivery["event"])
 				except Exception:
-					stale_registration_ids.add(id(registration))
+					stale_registration_ids.add(
+						registration.get("registration_id"))
 					continue
 				delivered = True
 		if stale_registration_ids:
 			with self.lock:
 				self._prune_event_registrations_locked(
 					lambda registration:
-						id(registration) in stale_registration_ids)
+						registration.get("registration_id")
+						in stale_registration_ids)
 		return delivered
 
 	def _enqueue_completion_record_locked(self, queue, record):
