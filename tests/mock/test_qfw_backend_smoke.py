@@ -272,11 +272,21 @@ def test_backend_shutdown_unregisters_completion_events(monkeypatch):
 def test_backend_shutdown_tolerates_unregister_failure(monkeypatch):
 	import qfw_qiskit.qfw_simulator as qfw_simulator
 
+	calls = []
+
+	class OrderedLifecycleBinding(FakeLifecycleBinding):
+		def remove_reconnect_listener(self, listener):
+			calls.append("remove_reconnect_listener")
+			super().remove_reconnect_listener(listener)
+
 	class BrokenUnregisterQPM(FakeQPM):
 		def unregister_event_notification(self, registration_id, **kwargs):
+			calls.append("unregister_event_notification")
 			raise RuntimeError("connection already gone")
 
 	fake_qpm = BrokenUnregisterQPM()
+	lifecycle = OrderedLifecycleBinding()
+	fake_qpm.lifecycle_binding = lifecycle
 	fake_event_api = FakeEventAPI(class_id="event-api-unregister-broken")
 	fake_runtime = FakeRuntime(endpoint="endpoint-unregister-broken")
 
@@ -291,7 +301,11 @@ def test_backend_shutdown_tolerates_unregister_failure(monkeypatch):
 
 	backend.shutdown()
 
+	assert calls == [
+		"remove_reconnect_listener", "unregister_event_notification"]
 	assert fake_runtime.exit_called is True
+	assert lifecycle.listeners == []
+	assert lifecycle.closed is True
 
 
 def test_backend_restores_completion_event_after_same_qpm_reconnect(
