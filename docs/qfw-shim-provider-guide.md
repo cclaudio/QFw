@@ -165,6 +165,14 @@ the Braket library retries throttling through the AWS SDK. IBM QDMI does not
 retry a refused job submission. QDMI reports that failure without its HTTP
 status, so the shim cannot tell it from any other.
 
+Status polls count against a provider's request limit too. Unless a circuit
+names its own `poll_interval`, the shim waits `poll-interval-seconds` before
+the first poll of a job, 1 second when unset. Each poll that finds the job
+unfinished doubles the wait, up to 60 seconds, which is how IQM's own QDMI
+library polls. Both libraries poll this way. Raise `poll-interval-seconds`
+for a device whose limit is tight. The cost is that a job is noticed to have
+finished later, by up to the wait then in force.
+
 `max-concurrent-jobs` caps how many of the device's circuits are at the
 provider at once:
 

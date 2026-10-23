@@ -23,8 +23,8 @@
 # composite with an embedded qhw device). Circuit execution uses QRMI's task
 # lifecycle and returns normalized qhw results.
 
-from .base_driver import (BaseDriver, JobRecords, pasqal_backend_info,
-		reservation_cache_key)
+from .base_driver import (BaseDriver, JobRecords, next_poll_wait,
+		pasqal_backend_info, poll_schedule, reservation_cache_key)
 from defw_exception import (DEFwExecutionError, DEFwNotFound,
 		DEFwNotReady)
 from util import instrumentation
@@ -1313,7 +1313,7 @@ class QrmiDriver(BaseDriver):
 		cid = source.get_cid() if hasattr(source, "get_cid") else info.get("cid")
 
 		shots = num_shots(info)
-		poll = float(info.get("poll_interval", 1.0))
+		poll, backoff = poll_schedule(info, self._descriptor)
 
 		# Set by the shim QRC when the QPM cancels this circuit. A cancel that
 		# arrives before submission starts nothing at the provider.
@@ -1363,7 +1363,8 @@ class QrmiDriver(BaseDriver):
 		try:
 			status = self._poll_task(
 				job_id, timeout, poll, credential=credential,
-				cancel_event=cancel_event, deadline=deadline)
+				cancel_event=cancel_event, deadline=deadline,
+				backoff=backoff)
 		except BaseException:
 			collect.__exit__(*sys.exc_info())
 			raise
@@ -1611,7 +1612,7 @@ class QrmiDriver(BaseDriver):
 		return iqmjson, json.loads(iqmjson)
 
 	def _poll_task(self, job_id, timeout, poll, credential=None,
-			cancel_event=None, deadline=None):
+			cancel_event=None, deadline=None, backoff=False):
 		# Poll QRMI task_status until a terminal state, and return
 		# completed, failed or cancelled.
 		#
@@ -1624,9 +1625,14 @@ class QrmiDriver(BaseDriver):
 		# it from the submission. Without one, it is counted from the first
 		# poll. A poll the provider refuses as rate-limited is waited out and
 		# made again, inside the same deadline.
+		#
+		# poll is the first wait between polls. With backoff, each poll that
+		# finds the job unfinished doubles it (poll_schedule). No wait runs
+		# past the deadline, so the last poll is made when it runs out.
 		if deadline is None and timeout is not None:
 			deadline = time.monotonic() + max(timeout, 0.0)
 		rate_limit = _RateLimit("task_status", deadline, cancel_event)
+		wait = poll
 		polls = 0
 		state = None
 		while True:
@@ -1640,7 +1646,7 @@ class QrmiDriver(BaseDriver):
 					raise self._qrmi_error(
 						exc, "QRMI task_status failed") from exc
 				# A cancel that ended the wait is the loop's to handle.
-				if rate_limit.wait(at_least=poll) or rate_limit.cancelled():
+				if rate_limit.wait(at_least=wait) or rate_limit.cancelled():
 					continue
 				raise self._timed_out(
 					job_id, timeout,
@@ -1662,10 +1668,14 @@ class QrmiDriver(BaseDriver):
 				raise self._timed_out(
 					job_id, timeout, f"last status {state!r}",
 					credential=credential)
+			pause = max(wait, 0.0)
+			if deadline is not None:
+				pause = min(pause, max(deadline - time.monotonic(), 0.0))
 			if cancel_event is not None:
-				cancel_event.wait(max(poll, 0.0))
+				cancel_event.wait(pause)
 			else:
-				time.sleep(max(poll, 0.0))
+				time.sleep(pause)
+			wait = next_poll_wait(wait, backoff)
 
 	def _timed_out(self, job_id, timeout, last, credential=None):
 		# Stop a job that ran past its timeout, and the error that says so.

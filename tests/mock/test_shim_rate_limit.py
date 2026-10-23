@@ -1,12 +1,16 @@
 # Guards the shim against a provider that rate-limits it with HTTP 429. On
 # 2026-10-23 a chemistry workflow on the ORNL q20 failed on its first energy
 # evaluation with "QRMI task_start failed: [QrmiError_] error in response:
-# status code 429 Too Many Requests". Two halves:
+# status code 429 Too Many Requests". With one circuit in flight, the next run
+# failed the same way on task_status. Three parts:
 #
 # - The QRMI driver waits a 429 out, doubling the wait each time with jitter,
 #   for each call of a job's lifecycle: task_start, task_status and
 #   task_result. It gives up only once the job's own timeout has run out.
 #   QRMI passes on no Retry-After, so the wait is the driver's.
+# - Fewer status polls: unless the client names a poll_interval, the first
+#   wait is the device's poll-interval-seconds, else a second, and it doubles
+#   while the job runs, up to a minute. Both drivers poll this way.
 # - A device-access max-concurrent-jobs caps how many of the device's circuits
 #   are at the provider at once. It is the device profile's
 #   max_provider_queue_depth, so the QPM controller holds the rest queued and
@@ -37,7 +41,7 @@ import util.qpm.util_circuit as util_circuit  # noqa: E402
 import util.qpm.util_qpm as util_qpm  # noqa: E402
 from defw_exception import DEFwExecutionError  # noqa: E402
 from svc_lib_qpm import svc_qrc  # noqa: E402
-from svc_lib_qpm.drivers import qrmi_driver  # noqa: E402
+from svc_lib_qpm.drivers import qdmi_driver, qrmi_driver  # noqa: E402
 from svc_lib_qpm.drivers.qrmi_driver import QrmiDriver  # noqa: E402
 from tests.mock.fakes import FakeSchedulerContext  # noqa: E402
 from util.qpm.controller import (  # noqa: E402
@@ -88,13 +92,15 @@ def _fake_waits(monkeypatch):
 
 class _Resource:
 	# A QRMI resource whose calls are refused as rate-limited a set number of
-	# times before they go through.
+	# times before they go through. Its job reports states in turn, and the
+	# last one from then on.
 	def __init__(self, start=0, status=0, result=0, message=IQM_429,
-			state="Completed"):
+			states=("Completed",)):
 		self.refusals = {
 			"task_start": start, "task_status": status, "task_result": result}
 		self.message = message
-		self.state = state
+		self.states = list(states)
+		self.reads = 0
 		self.calls = collections.Counter()
 		self.stopped = []
 
@@ -109,7 +115,8 @@ class _Resource:
 
 	def task_status(self, job_id):
 		self._call("task_status")
-		return self.state
+		self.reads += 1
+		return self.states[min(self.reads, len(self.states)) - 1]
 
 	def task_result(self, job_id):
 		self._call("task_result")
@@ -292,7 +299,7 @@ def test_time_spent_waiting_to_submit_comes_off_the_job_timeout(monkeypatch):
 	# out the rate limit, so it is stopped after 14 seconds of polling.
 	clock = _fake_waits(monkeypatch)
 	start = clock.now
-	resource = _Resource(start=2, state="Running")
+	resource = _Resource(start=2, states=("Running",))
 
 	with pytest.raises(
 			DEFwExecutionError,
@@ -317,6 +324,97 @@ def test_a_refused_result_fetch_is_waited_out(monkeypatch):
 	assert job["status"] == "completed"
 	assert resource.calls["task_result"] == 2
 	assert clock.sleeps == [2.0]
+
+
+# --- how often a job's status is polled ------------------------------------------
+#
+# A circuit without a poll_interval, which is every circuit QFwBackend sends,
+# is polled after the device's poll-interval-seconds, else a second, and each
+# poll that finds the job unfinished doubles the wait, up to a minute.
+
+def test_status_polls_back_off_while_the_job_runs(monkeypatch):
+	clock = _fake_waits(monkeypatch)
+	resource = _Resource(states=("Running",) * 8 + ("Completed",))
+
+	_, job = _driver(resource, job_timeout_seconds=600)._run_sampler_payload(
+		"payload", _circuit(poll_interval=None))
+
+	assert job["status"] == "completed"
+	assert clock.sleeps == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 60.0, 60.0]
+
+
+def test_the_devices_poll_interval_is_the_first_wait(monkeypatch):
+	clock = _fake_waits(monkeypatch)
+	resource = _Resource(states=("Running",) * 3 + ("Completed",))
+
+	_driver(resource, poll_interval_seconds=5)._run_sampler_payload(
+		"payload", _circuit(poll_interval=None))
+
+	assert clock.sleeps == [5.0, 10.0, 20.0]
+
+
+def test_a_poll_interval_from_the_client_stays_fixed(monkeypatch):
+	# A caller that names its interval, a measurement script for instance,
+	# is polled at that interval, as before, whatever the device sets.
+	clock = _fake_waits(monkeypatch)
+	resource = _Resource(states=("Running",) * 3 + ("Completed",))
+
+	_driver(resource, poll_interval_seconds=5)._run_sampler_payload(
+		"payload", _circuit(poll_interval=3.0))
+
+	assert clock.sleeps == [3.0, 3.0, 3.0]
+
+
+def test_the_last_poll_is_made_when_the_timeout_runs_out(monkeypatch):
+	clock = _fake_waits(monkeypatch)
+	start = clock.now
+	resource = _Resource(states=("Running",))
+
+	with pytest.raises(
+			DEFwExecutionError,
+			match=r"timed out after 20\.0s \(last status 'running'\)"):
+		_driver(resource, job_timeout_seconds=20)._run_sampler_payload(
+			"payload", _circuit(poll_interval=None))
+
+	# 1 + 2 + 4 + 8 seconds, then the 16-second wait is cut to the 5 left.
+	assert clock.sleeps == [1.0, 2.0, 4.0, 8.0, 5.0]
+	assert clock.now - start == 20.0
+	assert resource.calls["task_status"] == 6
+	assert resource.stopped == ["job-1"]
+
+
+def test_a_poll_interval_that_is_not_a_number_fails_before_submitting(
+		monkeypatch):
+	_fake_waits(monkeypatch)
+	resource = _Resource()
+
+	with pytest.raises(
+			DEFwExecutionError,
+			match="the poll interval must be a number of seconds, not '1s'"):
+		_driver(resource, poll_interval_seconds="1s")._run_sampler_payload(
+			"payload", _circuit(poll_interval=None))
+
+	assert resource.calls["task_start"] == 0
+
+
+class _QdmiJob:
+	def __init__(self, states):
+		self.states = list(states)
+
+	def check(self):
+		return self.states.pop(0) if len(self.states) > 1 else self.states[0]
+
+
+def test_qdmi_status_polls_back_off_too(monkeypatch):
+	clock = _Clock()
+	monkeypatch.setattr(qdmi_driver, "time", clock)
+	job = _QdmiJob(["RUNNING"] * 3 + ["DONE"])
+
+	status = qdmi_driver.QdmiDriver({"provider": "iqm"})._poll_job(
+		job, 600, 1.0, backoff=True)
+
+	assert status == "completed"
+	assert clock.sleeps == [1.0, 2.0, 4.0]
 
 
 # --- max-concurrent-jobs: the QPM's dispatch limit ---------------------------

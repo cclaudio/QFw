@@ -148,6 +148,15 @@ seconds, with jitter, until it goes through or this timeout runs out. QRMI
 passes on no
 .BR Retry-After .
 .TP
+.B poll-interval-seconds
+Seconds the shim waits before it first polls a job's status, through QRMI or
+QDMI. Optional, 1 when unset. Each poll that finds the job unfinished
+doubles the wait, up to 60 seconds, which is how IQM's own QDMI library
+polls. A provider that limits its request rate counts every poll, so raise
+this for a device whose limit is tight. A circuit that names its own poll
+interval is polled at that fixed interval instead. The value is a number of
+seconds.
+.TP
 .B max-concurrent-jobs
 How many of the device's circuits the QPM lets be at the provider at once,
 from submission to result. Optional. It is a whole number, at least 1, and a
