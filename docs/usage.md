@@ -73,8 +73,7 @@ export QFW_PREFIX="$QFW_BASE/qfw-install"
 python3 -m venv "$QFW_VENV"
 source "$QFW_VENV/bin/activate"
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r "$QFW_SRC/setup/build-requirements.txt"
-python -m pip install -r "$QFW_SRC/setup/requirements.txt"
+uv pip install -r "$QFW_SRC/setup/build-requirements.txt" -r "$QFW_SRC/setup/requirements.txt" --override "$QFW_SRC/setup/overrides.txt"
 
 cmake -S "$QFW_SRC" -B "$QFW_BUILD" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -190,8 +189,7 @@ Create the environment on storage visible to every node that will use it:
 python3 -m venv /path/to/qfw-venv
 source /path/to/qfw-venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r setup/build-requirements.txt
-python -m pip install -r setup/requirements.txt
+uv pip install -r setup/build-requirements.txt -r setup/requirements.txt --override setup/overrides.txt
 ```
 
 Install any simulator, application, or hardware-provider Python dependencies

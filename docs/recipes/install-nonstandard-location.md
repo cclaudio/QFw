@@ -24,8 +24,7 @@ export QFW_INSTALL_PREFIX="${QFW_SHARED_ROOT}/qfw-release-v0.1-install"
 python3 -m venv "${QFW_VENV}"
 source "${QFW_VENV}/bin/activate"
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r "${QFW_SRC}/setup/build-requirements.txt"
-python -m pip install -r "${QFW_SRC}/setup/requirements.txt"
+uv pip install -r "${QFW_SRC}/setup/build-requirements.txt" -r "${QFW_SRC}/setup/requirements.txt" --override "${QFW_SRC}/setup/overrides.txt"
 ```
 
 Provider clients and simulator-specific Python packages should be installed in

@@ -59,8 +59,7 @@ Create or activate the shared Python environment that QFw should use:
 python3 -m venv /path/to/qfw-venv
 source /path/to/qfw-venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r setup/build-requirements.txt
-python -m pip install -r setup/requirements.txt
+uv pip install -r setup/build-requirements.txt -r setup/requirements.txt --override setup/overrides.txt
 ```
 
 Install QFw with the CMake-backed installer. Use `--with-defw` when this
