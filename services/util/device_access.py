@@ -279,7 +279,7 @@ def select_qpu(device_config, path, provider=None, device_id=None):
 			"s3-region", "job-timeout-seconds",
 			"qdmi-device-id", "aws-region", "s3-results-uri",
 			"reservation-arn", "num-qubits", "max-shots",
-			"project-id"):
+			"max-concurrent-jobs", "project-id"):
 		if key in device:
 			selected[key] = device[key]
 	if "execution-owner" in device:

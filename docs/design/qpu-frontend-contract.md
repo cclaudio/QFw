@@ -174,8 +174,10 @@ carries its device name as `provider-device-id`, `resource-type: PasqalCloud`
 and a default Pasqal Cloud `project-id` ([Pulser programs](pulser-programs.md)).
 Any device can carry
 `num-qubits`, for the directory record a service publishes before a session
-opens, and `max-shots`, a cap the driver refuses above. None of these is a
-secret.
+opens, `max-shots`, a cap the driver refuses above, and
+`max-concurrent-jobs`, how many of its circuits the QPM lets be at the
+provider at once (the device profile's `max_provider_queue_depth`). None of
+these is a secret.
 
 ### 5.1 Capabilities are per resource — libfabric-style providers
 

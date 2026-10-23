@@ -106,11 +106,16 @@ PASQAL_DEVICE = {
 	"project-id": "proj-device",
 }
 
+# A device whose provider rate-limits job submission caps how many of its
+# circuits are at the provider at once. The shim QPM reads the cap off the
+# descriptor, so it has to pass both fixed key sets like the keys above.
+RATE_LIMITED_DEVICE = dict(BARE_DEVICE, **{"max-concurrent-jobs": 2})
+
 DESCRIPTOR_KEYS = (
 	"libraries", "preference", "caps", "execution_owner",
 	"service-crn", "iam-endpoint", "qdmi-device-id", "aws-region",
 	"s3-results-uri", "reservation-arn", "num-qubits", "max-shots",
-	"project-id")
+	"max-concurrent-jobs", "project-id")
 
 
 def _config(device, device_id="dev"):
@@ -451,6 +456,30 @@ def test_resolve_descriptor_carries_the_pasqal_fields(monkeypatch):
 	assert resolved["provider_device_id"] == "EMU_FREE"
 	assert resolved["resource_type"] == "PasqalCloud"
 	assert resolved["project_id"] == "proj-device"
+
+
+def test_select_qpu_passes_through_max_concurrent_jobs(monkeypatch):
+	monkeypatch.delenv(device_access.QPU_DEVICE_ENV, raising=False)
+	selected = device_access.select_qpu(
+		_config(RATE_LIMITED_DEVICE), "cfg.yaml", provider="iqm")
+	assert selected["max-concurrent-jobs"] == 2
+
+
+@pytest.mark.parametrize("device,expected", [
+	(RATE_LIMITED_DEVICE, 2),
+	(BARE_DEVICE, None),
+])
+def test_resolve_descriptor_carries_max_concurrent_jobs(
+		monkeypatch, device, expected):
+	descriptor = _load_descriptor()
+	monkeypatch.setattr(
+		device_access, "device_access_config_path", lambda: "cfg.yaml")
+	monkeypatch.setattr(
+		device_access, "load_yaml_config", lambda path: _config(device))
+	monkeypatch.setenv(device_access.QPU_DEVICE_ENV, "dev")
+
+	resolved = descriptor.resolve_descriptor()
+	assert resolved["max_concurrent_jobs"] == expected
 
 
 def test_resolve_descriptor_leaves_the_braket_fields_unset_when_unconfigured(

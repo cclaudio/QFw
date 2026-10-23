@@ -100,4 +100,8 @@ def resolve_descriptor(device_id=None):
 		# refuses above, before anything is billed.
 		"num_qubits": device.get("num-qubits"),
 		"max_shots": device.get("max-shots"),
+		# How many of the device's circuits may be at the provider at once,
+		# for a provider that rate-limits. The QPM holds the rest in its
+		# queue (svc_qpm.py). None adds no limit of the device's own.
+		"max_concurrent_jobs": device.get("max-concurrent-jobs"),
 	}
