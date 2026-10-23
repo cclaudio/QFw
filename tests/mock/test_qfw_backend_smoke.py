@@ -295,6 +295,30 @@ def test_backend_restores_completion_event_after_same_qpm_reconnect(
 	assert lifecycle.closed is True
 
 
+def test_backend_unregisters_previous_registration_on_same_runtime_reconnect(
+		monkeypatch):
+	import qfw_qiskit.qfw_simulator as qfw_simulator
+
+	fake_qpm = FakeQPM()
+	lifecycle = FakeLifecycleBinding()
+	fake_qpm.lifecycle_binding = lifecycle
+	fake_event_api = FakeEventAPI(class_id="event-api-reconnect-unregister")
+	fake_runtime = FakeRuntime(endpoint="endpoint-reconnect-unregister")
+
+	monkeypatch.setattr(
+		qfw_simulator, "get_qpm",
+		lambda *args, **kwargs: (fake_qpm, None))
+	monkeypatch.setattr(qfw_simulator, "BaseEventAPI", lambda: fake_event_api)
+	monkeypatch.setattr(qfw_simulator, "me", fake_runtime)
+	monkeypatch.setattr(qfw_simulator.g_circ_metrics, "dump", lambda: None)
+
+	backend = qfw_simulator.QFwBackend()
+	lifecycle.reconnect(same_runtime=True)
+	backend.shutdown()
+
+	assert fake_qpm.unregistrations == [1, 2]
+
+
 def test_qfw_job_metadata_keeps_only_qhw_result():
 	from qfw_qiskit.qfw_job import QFwJob
 

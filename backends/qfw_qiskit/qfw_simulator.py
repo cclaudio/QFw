@@ -169,6 +169,9 @@ class QFwBackend(BackendV2):
 			registration = self._completion_event_registration
 			self._completion_event_registered = False
 			self._completion_event_registration = None
+		self._unregister_registration(registration)
+
+	def _unregister_registration(self, registration):
 		registration_id = (
 			registration.get("registration_id")
 			if isinstance(registration, dict) else None)
@@ -275,9 +278,11 @@ class QFwBackend(BackendV2):
 
 	def _handle_qpm_reconnect(self, state):
 		with self._event_registration_lock:
+			previous = self._completion_event_registration
 			self._completion_event_registered = False
 			self._completion_event_registration = None
 		if state.get("same_runtime"):
+			self._unregister_registration(previous)
 			self.register_completion_events()
 
 	def log_statistics(self, res):
