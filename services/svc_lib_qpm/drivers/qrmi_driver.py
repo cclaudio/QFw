@@ -1194,6 +1194,21 @@ class QrmiDriver(BaseDriver):
 		from qhw_ibm import normalize_result
 		return normalize_result(raw, device_id=self._device_id())
 
+	def _vendor_timing(self, job_id, credential=None):
+		# The provider's own account of the job for the telemetry, behind
+		# QFW_TELEMETRY_VENDOR because it is one more request per job. IQM
+		# only: QRMI returns the measurements alone from task_result, and the
+		# job's timeline, the server's timestamp per phase, only as the text
+		# of task_logs, which util.iqm_timeline reads. Best effort, like the logs.
+		if not instrumentation.vendor_enabled() or self._provider() != "iqm":
+			return {}
+		from util.iqm_timeline import durations_from_task_logs
+		phases = durations_from_task_logs(
+			self._task_logs(job_id, credential=credential))
+		if phases:
+			instrumentation.record_vendor_timing(phases)
+		return phases
+
 	def _task_logs(self, job_id, credential=None):
 		# Best effort: the caller is already failing, so anything that goes
 		# wrong here is logged and dropped rather than raised. A backend that
@@ -1304,6 +1319,7 @@ class QrmiDriver(BaseDriver):
 		collect.__exit__(None, None, None)
 		timing["result_fetch_seconds"] = time.monotonic() - result_started
 		timing["total_wall_seconds"] = time.monotonic() - start
+		vendor = self._vendor_timing(job_id, credential=credential)
 
 		# Nothing else to do with the completed task, we can delete it.
 		# The same behavior is implemented in QRMI's task_runner.
@@ -1312,6 +1328,8 @@ class QrmiDriver(BaseDriver):
 
 		job = {"id": str(job_id), "status": "completed", "cid": cid,
 			   "timing": timing, "shots": shots}
+		if vendor:
+			job["vendor_timing"] = vendor
 		self._jobs.put(job)
 
 		return result_json, job
