@@ -1,3 +1,4 @@
+import atexit
 import os
 import time
 import logging
@@ -143,6 +144,7 @@ class QFwBackend(BackendV2):
 		self.options.set_validator("seed_simulator", int)
 		self.options.set_validator("seed", int)
 		self.register_completion_events()
+		atexit.register(self._unregister_completion_events)
 
 	def __copy__(self):
 		return self
@@ -167,8 +169,28 @@ class QFwBackend(BackendV2):
 		if self._qpm_lifecycle_binding is not None:
 			self._qpm_lifecycle_binding.remove_reconnect_listener(
 				self._handle_qpm_reconnect)
+		self._unregister_completion_events()
+		if self._qpm_lifecycle_binding is not None:
 			self._qpm_lifecycle_binding.close()
 		me.exit()
+
+	def _unregister_completion_events(self):
+		with self._event_registration_lock:
+			registration = self._completion_event_registration
+			self._completion_event_registered = False
+			self._completion_event_registration = None
+		self._unregister_registration(registration)
+
+	def _unregister_registration(self, registration):
+		registration_id = (
+			registration.get("registration_id")
+			if isinstance(registration, dict) else None)
+		if registration_id is None:
+			return
+		try:
+			self.qpm.unregister_event_notification(registration_id)
+		except Exception:
+			pass
 
 	def configuration(self):
 		# LEGACY (BackendV1): Return configuration dict for backward compatibility
@@ -330,9 +352,11 @@ class QFwBackend(BackendV2):
 
 	def _handle_qpm_reconnect(self, state):
 		with self._event_registration_lock:
+			previous = self._completion_event_registration
 			self._completion_event_registered = False
 			self._completion_event_registration = None
 		if state.get("same_runtime"):
+			self._unregister_registration(previous)
 			self.register_completion_events()
 
 	def log_statistics(self, res):
