@@ -7,7 +7,7 @@
 # get_backend_info, get_device_info, get_dynamic_backend_info,
 # get_calibration_snapshot and get_coupling_graph. This wrapper puts them on
 # the backend as backend.telemetry, with the run context the backend already
-# holds (the shim library, the reservation token) filled in on every call.
+# holds (the shim library and reservation context) filled in on every call.
 
 
 class QFwTelemetry:
@@ -16,9 +16,9 @@ class QFwTelemetry:
 	`api` is the managed telemetry binding from the QPM lookup
 	(qfw_lookup_service.get_qpm_telemetry). `context` is a callable
 	returning the keyword arguments every call carries: `lib`, the shim
-	library the backend would run through, and `token`, the reservation
-	token when there is one. A `lib` passed to a call wins over the
-	context's.
+	library the backend would run through, and reservation context such as
+	`reservation_id` and `token` when present. A `lib` passed to a call wins
+	over the context's.
 	"""
 
 	CALLS = (

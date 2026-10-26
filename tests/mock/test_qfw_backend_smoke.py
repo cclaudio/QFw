@@ -192,6 +192,29 @@ def test_backend_run_uses_option_reservation_context(monkeypatch):
 	assert job.options["cancel_on_timeout"] is True
 
 
+def test_backend_telemetry_context_includes_reservation_context(monkeypatch):
+	import qfw_qiskit.qfw_simulator as qfw_simulator
+
+	fake_qpm = FakeQPM()
+	fake_event_api = FakeEventAPI(class_id="event-api-telemetry-context")
+	fake_runtime = FakeRuntime(endpoint="endpoint-telemetry-context")
+
+	monkeypatch.setattr(
+		qfw_simulator, "get_qpm",
+		lambda *args, **kwargs: (fake_qpm, None))
+	monkeypatch.setattr(qfw_simulator, "BaseEventAPI", lambda: fake_event_api)
+	monkeypatch.setattr(qfw_simulator, "me", fake_runtime)
+
+	backend = qfw_simulator.QFwBackend()
+	backend.options.reservation_id = 7
+	backend.options.token = "default-token"
+
+	context = backend._telemetry_context()
+
+	assert context["reservation_id"] == 7
+	assert context["token"] == "default-token"
+
+
 def test_backend_registers_completion_event_once(monkeypatch):
 	import qfw_qiskit.qfw_simulator as qfw_simulator
 
