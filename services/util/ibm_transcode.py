@@ -109,13 +109,6 @@ def qiskit_sampler_input_json(isa_circuit, param_values=None, shots=None):
 	except Exception as exc:
 		raise DEFwExecutionError(f"Invalid parameters: {exc}") from exc
 
-	# parameter_values.shape reports (num_bindings,): one binding means a single
-	# parameter set will be sampled `shots` times; more than one means multiple
-	# distinct circuits are submitted, each run `shots` times independently.
-	# Logging both here lets callers catch accidental multi-binding inputs early
-	# (e.g. passing a list of scalars instead of a dict keyed by Parameter objects).
-	logging.info(f"Circuit: parameter_values.shape={pub.parameter_values.shape} shots={pub.shots}")
-
 	qasm3_str = qasm3.dumps(
 		pub.circuit,
 		disable_constants=True,
