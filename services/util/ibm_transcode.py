@@ -100,8 +100,8 @@ def qiskit_sampler_input_json(isa_circuit, param_values=None, shots=None):
 			removed = [k for k in param_values if getattr(k, 'name', str(k)) not in isa_param_names]
 			if removed:
 				logging.warning(
-					"Parameters optimised away (removed) by the transpiler: %s",
-					sorted(getattr(k, 'name', str(k)) for k in removed))
+					"Parameters optimised away (removed) by the transpiler: "
+					f"{sorted(getattr(k, 'name', str(k)) for k in removed)}")
 			pub = SamplerPub.coerce((isa_circuit, filtered), shots)
 			logging.info(f"Circuit param_values used: {filtered}")
 		else:
