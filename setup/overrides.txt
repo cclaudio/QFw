@@ -6,8 +6,10 @@
 # remaining overrides, every build passes --override and will fail
 # if this file is missing.
 
-# pennylane-qiskit 0.45.0 declares qiskit<=2.3.0 but runs on 2.5. Without
-# this the resolver satisfies the cap by downgrading pennylane-qiskit to 0.39
-# and qiskit-ibm-runtime to 0.29. Once pennylane-qiskit publishes a release
-# that allows Qiskit 2.5, drop this override line.
+# pennylane-qiskit 0.45.0 declares qiskit<=2.3.0, but MQT require qiskit 2.5.
+# penny-lane 0.45.0 appears to work with 2.5, so we've pinned it in
+# setup/requirements.txt and added this override here.
+# When pennylane-qiskit is updated to use the newer version of qiskit
+# (maybe with this PR https://github.com/PennyLaneAI/pennylane-qiskit/pull/719)
+# you can drop this override line and the pinned version in setup/requirements. 
 qiskit==2.5.2
