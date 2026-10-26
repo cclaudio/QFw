@@ -12,4 +12,9 @@
 # When pennylane-qiskit is updated to use the newer version of qiskit
 # (maybe with this PR https://github.com/PennyLaneAI/pennylane-qiskit/pull/719)
 # you can drop this override line and the pinned version in setup/requirements. 
-qiskit==2.5.2
+#
+# Why do I add '[qasm3-import]' in this requirement?
+# An override replaces the whole requirement, extras included. mqt-core[qiskit]
+# and iqm-qdmi[qiskit] ask for qiskit[qasm3-import], so the extra is repeated
+# here to keep qiskit-qasm3-import and openqasm3 installed.
+qiskit[qasm3-import]==2.5.2
