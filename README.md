@@ -53,12 +53,13 @@ QFw services. For an existing checkout that was not cloned with
 git submodule update --init --recursive
 ```
 
-Create or activate the shared Python environment that QFw should use:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if it is
+not already available, then create or activate the shared Python environment
+that QFw should use:
 
 ```bash
-python3 -m venv /path/to/qfw-venv
+uv venv /path/to/qfw-venv
 source /path/to/qfw-venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel uv
 uv pip install -r setup/build-requirements.txt -r setup/requirements.txt --override setup/overrides.txt
 ```
 
@@ -438,7 +439,7 @@ simulator modes may still require one.
 Run these checks when editing QFw itself:
 
 ```bash
-python -m pip install flake8 pytest
+uv pip install flake8 pytest
 ./.github/scripts/ci-syntax.sh
 ./.github/scripts/ci-mock.sh
 ```

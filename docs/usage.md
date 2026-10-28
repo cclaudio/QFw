@@ -70,9 +70,8 @@ export QFW_VENV="$QFW_BASE/qfw-venv"
 export QFW_BUILD="$QFW_BASE/qfw-build"
 export QFW_PREFIX="$QFW_BASE/qfw-install"
 
-python3 -m venv "$QFW_VENV"
+uv venv "$QFW_VENV"
 source "$QFW_VENV/bin/activate"
-python -m pip install --upgrade pip setuptools wheel uv
 uv pip install -r "$QFW_SRC/setup/build-requirements.txt" -r "$QFW_SRC/setup/requirements.txt" --override "$QFW_SRC/setup/overrides.txt"
 
 cmake -S "$QFW_SRC" -B "$QFW_BUILD" \
@@ -183,12 +182,13 @@ git submodule update --init --recursive
 <details id="python-environment">
 <summary><strong>3. Create A Python Environment</strong></summary>
 
-Create the environment on storage visible to every node that will use it:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first if
+it is not already available. Create the environment on storage visible to every
+node that will use it:
 
 ```bash
-python3 -m venv /path/to/qfw-venv
+uv venv /path/to/qfw-venv
 source /path/to/qfw-venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel uv
 uv pip install -r setup/build-requirements.txt -r setup/requirements.txt --override setup/overrides.txt
 ```
 
