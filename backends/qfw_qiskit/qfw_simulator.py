@@ -233,8 +233,13 @@ class QFwBackend(BackendV2):
 	def _telemetry_context(self):
 		# What every telemetry call carries: the shim library a run would
 		# use, so the device described is the one the circuits reach, and
-		# the reservation token when the run context holds one.
+		# the reservation context when the run context holds one.
 		context = {"lib": self._shim_library()}
+
+		reservation_id = getattr(self.options, "reservation_id", None)
+		if reservation_id is not None:
+			context["reservation_id"] = reservation_id
+
 		token = getattr(self.options, "token", None)
 		if token is not None:
 			context["token"] = token
