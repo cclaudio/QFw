@@ -394,13 +394,24 @@ class QPMLifecycleBinding:
 
 	def _handle_peer_event(self, event):
 		try:
-			if not self._peer_events.is_dirsvc_peer_event(event):
-				return
+			directory_peer = self._peer_events.is_dirsvc_peer_event(event)
 		except Exception:
 			return
 		event_type = event.get("event_type")
 		runtime_id = event.get("remote_runtime_id") or \
 			event.get("runtime_id")
+		if not directory_peer:
+			# A transport peer other than the directory: only the QPM's
+			# own runtime matters here. When that peer is lost, DEFw has
+			# no connection behind the cached clients any more, so every
+			# call through them fails, while the QPM stays registered and
+			# the directory has nothing to say. Drop the clients and let
+			# the next client() call connect again (QFw#176).
+			if event_type in ("PEER_LOST", "PEER_REMOVED"):
+				with self._lock:
+					if runtime_id and runtime_id == self._runtime_id:
+						self._clients = {}
+			return
 		if event_type in ("PEER_LOST", "PEER_REMOVED"):
 			with self._lock:
 				if (self._directory_runtime_id and runtime_id and

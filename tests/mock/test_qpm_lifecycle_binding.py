@@ -441,3 +441,61 @@ def test_lifecycle_binding_ignores_non_qpm_service_events():
 	assert binding.snapshot()["runtime_id"] == "qpm-runtime-1"
 	assert api.identify() == ("qpm-runtime-1", "execution")
 	binding.close()
+
+
+def test_losing_the_qpm_transport_peer_drops_the_clients():
+	defw = FakeDEFw()
+	peer_events = FakePeerEvents()
+	event_api = FakeEventAPI()
+	record = service_record()
+	directory = FakeDirectory(record)
+	binding = QPMLifecycleBinding(
+		"nwqsim",
+		defw_module=defw,
+		peer_events_module=peer_events,
+		event_api_factory=lambda: event_api,
+	)
+	binding.start(
+		directory=directory,
+		directory_runtime_id="directory-runtime-1",
+	)
+	api = binding.api("control", expected_runtime_id="qpm-runtime-1")
+	first = binding.client("control")
+	assert api.identify() == ("qpm-runtime-1", "control")
+	assert len(defw.connections) == 1
+
+	# Some other peer going away is not this QPM's business.
+	peer_events.emit({
+		"event_type": "PEER_LOST",
+		"remote_runtime_id": "job-runtime-7",
+		"node_type": 2,
+		"reason": "transport-failure",
+	})
+	assert binding.client("control") is first
+	assert len(defw.connections) == 1
+
+	# The QPM's own transport peer is lost. DEFw has no connection behind
+	# the cached client any more, but the QPM is still registered, so the
+	# binding stays available and the next call connects again.
+	peer_events.emit({
+		"event_type": "PEER_LOST",
+		"remote_runtime_id": "qpm-runtime-1",
+		"node_type": 3,
+		"reason": "heartbeat-send-failure",
+	})
+	assert binding.snapshot()["available"]
+	second = binding.client("control")
+	assert second is not first
+	assert len(defw.connections) == 2
+	assert api.identify() == ("qpm-runtime-1", "control")
+
+	# The PEER_REMOVED that follows for the same runtime drops them too.
+	peer_events.emit({
+		"event_type": "PEER_REMOVED",
+		"remote_runtime_id": "qpm-runtime-1",
+		"node_type": 3,
+		"reason": "transport-cleanup",
+	})
+	assert binding.client("control") is not second
+	assert len(defw.connections) == 3
+	binding.close()
