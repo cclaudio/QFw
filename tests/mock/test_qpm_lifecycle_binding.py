@@ -81,6 +81,20 @@ class BlockingDEFw(FakeDEFw):
 		return super().connect_to_binding(binding)
 
 
+class CountingBlockingDEFw(BlockingDEFw):
+	"""Blocks like BlockingDEFw and counts the threads inside connect."""
+
+	def __init__(self):
+		super().__init__()
+		self.entries = 0
+		self.entries_lock = threading.Lock()
+
+	def connect_to_binding(self, binding):
+		with self.entries_lock:
+			self.entries += 1
+		return super().connect_to_binding(binding)
+
+
 class FakeEventAPI:
 	def __init__(self):
 		self.read_fd, self.write_fd = os.pipe()
@@ -334,6 +348,57 @@ def test_qpm_disconnect_wins_race_with_direct_binding_creation():
 	defw.connect_release.set()
 	thread.join(timeout=1)
 	assert isinstance(result.get("error"), QPMBindingUnavailable)
+	binding.close()
+
+
+def test_concurrent_client_calls_connect_to_the_qpm_once():
+	# Four gateway threads resolving one QPM at the same time all miss the
+	# client cache. They must share one connection: a connection pair per
+	# thread leaves the QPM reading only the last pair while the clients
+	# bind to the first, and the peer is lost minutes later (QFw#176).
+	defw = CountingBlockingDEFw()
+	peer_events = FakePeerEvents()
+	event_api = FakeEventAPI()
+	record = service_record()
+	directory = FakeDirectory(record)
+	binding = QPMLifecycleBinding(
+		"nwqsim",
+		defw_module=defw,
+		peer_events_module=peer_events,
+		event_api_factory=lambda: event_api,
+	)
+	binding.start(
+		directory=directory,
+		directory_runtime_id="directory-runtime-1",
+	)
+	results = {}
+	started = threading.Barrier(5)
+
+	def connect(index):
+		started.wait(timeout=2)
+		try:
+			results[index] = binding.client("execution")
+		except Exception as error:
+			results[index] = error
+
+	threads = [
+		threading.Thread(target=connect, args=(index,))
+		for index in range(4)
+	]
+	for thread in threads:
+		thread.start()
+	started.wait(timeout=2)
+	assert defw.connect_entered.wait(timeout=1)
+	# Give the other threads time to reach the connect path too; without
+	# the connect lock they would each be inside connect_to_binding now.
+	time.sleep(0.2)
+	assert defw.entries == 1
+	defw.connect_release.set()
+	for thread in threads:
+		thread.join(timeout=2)
+	assert len(defw.connections) == 1
+	clients = [results[index] for index in range(4)]
+	assert all(client is clients[0] for client in clients), clients
 	binding.close()
 
 
