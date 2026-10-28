@@ -30,7 +30,7 @@ sudo install -d -o "${USER}" -g "$(id -gn)" \
 
 python3 -m venv "${QFW_VENV}"
 source "${QFW_VENV}/bin/activate"
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade pip setuptools wheel uv
 uv pip install -r "${QFW_SRC}/setup/build-requirements.txt" -r "${QFW_SRC}/setup/requirements.txt" --override "${QFW_SRC}/setup/overrides.txt"
 ```
 

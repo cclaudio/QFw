@@ -58,7 +58,7 @@ Create or activate the shared Python environment that QFw should use:
 ```bash
 python3 -m venv /path/to/qfw-venv
 source /path/to/qfw-venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade pip setuptools wheel uv
 uv pip install -r setup/build-requirements.txt -r setup/requirements.txt --override setup/overrides.txt
 ```
 
